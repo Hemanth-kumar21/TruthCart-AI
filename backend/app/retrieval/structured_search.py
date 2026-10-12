@@ -1,0 +1,176 @@
+import re
+from typing import Dict, List, Optional, Any
+from app.ingestion.catalogue_loader import catalogue_loader
+
+class StructuredSearchEngine:
+    """Deterministic structured filtering on ground-truth catalogue attributes."""
+
+    @staticmethod
+    def match_attribute(prod: Dict[str, Any], attr_key: str, target_val: str) -> bool:
+        """Checks if product attributes or title/desc match the target attribute value."""
+        target_lower = str(target_val).strip().lower()
+        if not target_lower:
+            return True
+
+        attrs = prod.get("attributes", {})
+        # 1. Direct attribute match
+        for k, v in attrs.items():
+            if attr_key.lower() in k.lower():
+                if isinstance(v, list):
+                    if any(target_lower in str(item).lower() for item in v):
+                        return True
+                elif target_lower in str(v).lower():
+                    return True
+
+        # 2. Key-agnostic search in attribute values
+        for v in attrs.values():
+            if isinstance(v, list):
+                if any(target_lower in str(item).lower() for item in v):
+                    return True
+            elif target_lower in str(v).lower():
+                return True
+
+        # 3. Mentioned in title or description
+        title = prod.get("title", "").lower()
+        desc = prod.get("description", "").lower()
+        if target_lower in title or target_lower in desc:
+            return True
+
+        return False
+
+    @staticmethod
+    def has_attribute(prod: Dict[str, Any], attr_key: str) -> bool:
+        """Checks if a product catalogue record actually contains the specified attribute."""
+        key_lower = attr_key.strip().lower()
+        if not key_lower:
+            return False
+        
+        # Check core fields
+        if key_lower in ("price", "cost", "mrp") and prod.get("price") is not None:
+            return True
+        if key_lower in ("stock", "stock_status", "availability") and prod.get("stock_status"):
+            return True
+        if key_lower in ("category", "department") and prod.get("category"):
+            return True
+        if key_lower in ("rating", "score") and prod.get("rating") is not None:
+            return True
+
+        # Check attributes dictionary
+        attrs = prod.get("attributes", {})
+        for k in attrs.keys():
+            if key_lower in k.lower() or k.lower() in key_lower:
+                return True
+
+        # Check title and description for key mentions
+        title = prod.get("title", "").lower()
+        desc = prod.get("description", "").lower()
+        if key_lower in title or key_lower in desc:
+            return True
+
+        return False
+
+    def search(
+        self,
+        product_id: Optional[str] = None,
+        max_price: Optional[float] = None,
+        min_price: Optional[float] = None,
+        category: Optional[str] = None,
+        brand: Optional[str] = None,
+        color: Optional[str] = None,
+        material: Optional[str] = None,
+        stock_required: Optional[bool] = None,
+        min_rating: Optional[float] = None,
+        required_attributes: Optional[Dict[str, str]] = None,
+        keyword: Optional[str] = None,
+        **kwargs: Any
+    ) -> List[Dict[str, Any]]:
+        """Filters catalogue records deterministically. Returns matching products."""
+        all_products = catalogue_loader.get_all_products()
+        if not all_products:
+            return []
+
+        # 1. Exact product_id filter (Highest specificity)
+        if product_id:
+            pid_clean = product_id.strip().upper()
+            matched = [
+                p for p in all_products
+                if p.get("product_id", "").upper() == pid_clean
+            ]
+            if matched:
+                return matched
+            # Try partial ID match if exact not found
+            matched = [
+                p for p in all_products
+                if pid_clean in p.get("product_id", "").upper()
+            ]
+            return matched
+
+        results = []
+        for p in all_products:
+            # Price constraints
+            price = p.get("price")
+            if price is not None:
+                if max_price is not None and price > max_price:
+                    continue
+                if min_price is not None and price < min_price:
+                    continue
+            elif max_price is not None or min_price is not None:
+                continue
+
+            # Stock requirement
+            if stock_required is True:
+                stock_status = p.get("stock_status", "").lower()
+                if stock_status not in ("in stock", "available", "yes"):
+                    continue
+
+            # Rating constraint
+            if min_rating is not None:
+                rating = p.get("rating")
+                if rating is None or rating < min_rating:
+                    continue
+
+            # Category filter
+            if category:
+                cat_lower = category.strip().lower()
+                prod_cat = p.get("category", "").lower()
+                prod_title = p.get("title", "").lower()
+                if cat_lower not in prod_cat and cat_lower not in prod_title:
+                    continue
+
+            # Brand filter
+            if brand:
+                if not self.match_attribute(p, "brand", brand):
+                    continue
+
+            # Color filter
+            if color:
+                if not self.match_attribute(p, "color", color):
+                    continue
+
+            # Material filter
+            if material:
+                if not self.match_attribute(p, "material", material):
+                    continue
+
+            # Custom attribute filters
+            if required_attributes:
+                mismatch = False
+                for req_k, req_v in required_attributes.items():
+                    if not self.match_attribute(p, req_k, req_v):
+                        mismatch = True
+                        break
+                if mismatch:
+                    continue
+
+            # General keyword filter (if provided)
+            if keyword:
+                kw_lower = keyword.strip().lower()
+                content = f"{p.get('title', '')} {p.get('description', '')} {p.get('category', '')}".lower()
+                if kw_lower not in content:
+                    continue
+
+            results.append(p)
+
+        return results
+
+structured_search_engine = StructuredSearchEngine()
