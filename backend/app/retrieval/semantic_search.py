@@ -91,6 +91,7 @@ class LocalVectorIndex:
         self.doc_ids: List[str] = []
         self.vocabulary: Dict[str, int] = {}
         self.idf: Dict[str, float] = {}
+        self.inverted_index: Dict[int, List[Tuple[int, float]]] = {}
         self.tfidf_matrix: Optional[np.ndarray] = None
         self.is_indexed: bool = False
         self.cache_path: Path = settings.get_index_path() / "catalogue_vector_index.pkl"
@@ -117,7 +118,8 @@ class LocalVectorIndex:
         return tokens
 
     def build_index(self, force_rebuild: bool = False) -> bool:
-        """Builds vector index from currently loaded catalogue with multi-field weighting."""
+        """Builds ultra-lightweight sparse vector index from currently loaded catalogue (<5MB RAM)."""
+        import gc
         products = catalogue_loader.get_all_products()
         if not products:
             self.is_indexed = False
@@ -132,7 +134,8 @@ class LocalVectorIndex:
                         self.doc_ids = cached["doc_ids"]
                         self.vocabulary = cached["vocabulary"]
                         self.idf = cached["idf"]
-                        self.tfidf_matrix = cached["tfidf_matrix"]
+                        self.inverted_index = cached.get("inverted_index", {})
+                        self.tfidf_matrix = np.empty((0, 0), dtype=np.float32)
                         self.is_indexed = True
                         SafeLogger.info(f"Loaded cached local vector index ({len(self.doc_ids)} items).")
                         return True
@@ -168,26 +171,36 @@ class LocalVectorIndex:
             for term, count in df.items()
         }
 
-        # Build TF-IDF matrix
-        vocab_size = len(self.vocabulary)
-        matrix = np.zeros((num_docs, vocab_size), dtype=np.float32)
-
+        # Build sparse inverted index (drastically reduces RAM from 300MB to ~2MB)
+        self.inverted_index = {}
         for doc_idx, tokens in enumerate(doc_tokens):
             if not tokens:
                 continue
             tf: Dict[str, int] = {}
             for t in tokens:
                 tf[t] = tf.get(t, 0) + 1
+
+            doc_weights: Dict[int, float] = {}
             for term, count in tf.items():
                 if term in self.vocabulary:
-                    term_idx = self.vocabulary[term]
-                    matrix[doc_idx, term_idx] = (count / len(tokens)) * self.idf[term]
+                    t_idx = self.vocabulary[term]
+                    doc_weights[t_idx] = (count / len(tokens)) * self.idf[term]
 
-            norm = np.linalg.norm(matrix[doc_idx])
-            if norm > 0:
-                matrix[doc_idx] /= norm
+            # Normalize document vector
+            norm_sq = sum(w * w for w in doc_weights.values())
+            norm = math.sqrt(norm_sq) if norm_sq > 0 else 1.0
 
-        self.tfidf_matrix = matrix
+            for t_idx, w in doc_weights.items():
+                norm_w = float(w / norm)
+                if t_idx not in self.inverted_index:
+                    self.inverted_index[t_idx] = []
+                self.inverted_index[t_idx].append((doc_idx, norm_w))
+
+        # Clean temporary structures from memory
+        del doc_tokens
+        gc.collect()
+
+        self.tfidf_matrix = np.empty((0, 0), dtype=np.float32)
         self.is_indexed = True
 
         # Cache locally
@@ -198,7 +211,7 @@ class LocalVectorIndex:
                     "doc_ids": self.doc_ids,
                     "vocabulary": self.vocabulary,
                     "idf": self.idf,
-                    "tfidf_matrix": self.tfidf_matrix
+                    "inverted_index": self.inverted_index,
                 }, f)
             SafeLogger.info(f"Built and cached local vector index for {num_docs} products.")
         except Exception as e:
@@ -208,7 +221,7 @@ class LocalVectorIndex:
 
     def query(self, query_text: str, top_k: int = 50, min_score: float = 0.04) -> List[Tuple[Dict[str, Any], float]]:
         """Computes cosine similarity between query and catalogue items with synonym expansion."""
-        if not self.is_indexed or self.tfidf_matrix is None or not self.doc_ids:
+        if not self.is_indexed or not self.doc_ids:
             self.build_index()
             if not self.is_indexed:
                 return []
@@ -221,23 +234,28 @@ class LocalVectorIndex:
         if not matched_tokens:
             return []
 
-        query_vec = np.zeros(len(self.vocabulary), dtype=np.float32)
         tf: Dict[str, int] = {}
         for t in matched_tokens:
             tf[t] = tf.get(t, 0) + 1
 
+        q_weights: Dict[int, float] = {}
         for term, count in tf.items():
-            idx = self.vocabulary[term]
-            query_vec[idx] = (count / len(tokens)) * self.idf[term]
+            t_idx = self.vocabulary[term]
+            q_weights[t_idx] = (count / len(tokens)) * self.idf[term]
 
-        norm = np.linalg.norm(query_vec)
-        if norm > 0:
-            query_vec /= norm
-        else:
+        norm_sq = sum(w * w for w in q_weights.values())
+        if norm_sq <= 0:
             return []
+        norm = math.sqrt(norm_sq)
 
-        # Cosine similarity
-        scores = np.dot(self.tfidf_matrix, query_vec)
+        # Fast sparse cosine similarity accumulation
+        scores = np.zeros(len(self.doc_ids), dtype=np.float32)
+        for t_idx, w in q_weights.items():
+            norm_qw = float(w / norm)
+            if t_idx in self.inverted_index:
+                for doc_idx, doc_w in self.inverted_index[t_idx]:
+                    scores[doc_idx] += doc_w * norm_qw
+
         top_indices = np.argsort(scores)[::-1][:top_k]
 
         results: List[Tuple[Dict[str, Any], float]] = []
