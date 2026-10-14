@@ -15,7 +15,7 @@ class Settings(BaseModel):
     LOG_LEVEL: str = Field(default_factory=lambda: os.getenv("LOG_LEVEL", "INFO"))
 
     # Server Settings
-    HOST: str = Field(default_factory=lambda: os.getenv("HOST", "127.0.0.1"))
+    HOST: str = Field(default_factory=lambda: os.getenv("HOST", "0.0.0.0"))
     PORT: int = Field(default_factory=lambda: int(os.getenv("PORT", "8000")))
     
     # Base workspace directory (find root containing 'data' or 'backend')
