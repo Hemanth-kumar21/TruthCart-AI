@@ -3,10 +3,12 @@ import json
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 
 from app.core.config import settings
 from app.core.logging_config import SafeLogger
+from app.ingestion.catalogue_loader import catalogue_loader
+from app.llm.model_loader import model_loader
 from app.llm.query_understanding import query_understanding
 from app.retrieval.hybrid_retriever import hybrid_retriever
 from app.evidence_engine.decision_engine import decision_engine
@@ -99,7 +101,7 @@ class EvaluationPipeline:
             evidence_obj = decision_engine.evaluate(query_str, parsed, product_cands, policy_cand)
 
             matched_prods = [c.data for c in product_cands]
-            response_text, products, citations, _ = response_generator.generate_response(evidence_obj, matched_prods)
+            response_text, products, citations, _, _ = response_generator.generate_response(evidence_obj, matched_prods)
 
             latency_ms = (time.perf_counter() - t0) * 1000.0
 
@@ -114,8 +116,27 @@ class EvaluationPipeline:
             actual_dec = evidence_obj.decision
             dec_match = (actual_dec == expected_dec) if expected_dec else None
 
-            # Check unsupported claims: any invalid citation OR refusal when answer was claimed without evidence
-            has_unsupported = len(invalid_cits) > 0 or len(evidence_obj.unsupported_fields) > 0
+            # Check unsupported claims: any invalid citation OR answer claimed with unsupported fields
+            has_unsupported = len(invalid_cits) > 0 or (actual_dec == "ANSWER" and len(evidence_obj.unsupported_fields) > 0)
+
+            # Determine pass/fail & failure reason
+            passed = True
+            failure_reason = None
+            if expected_dec and actual_dec != expected_dec:
+                passed = False
+                failure_reason = f"Decision mismatch: expected {expected_dec}, got {actual_dec}"
+            elif not is_valid_cit:
+                passed = False
+                failure_reason = f"Citation validation failed: {invalid_cits}"
+            elif has_unsupported:
+                passed = False
+                failure_reason = f"Unsupported fields found in answer: {evidence_obj.unsupported_fields}"
+
+            # Evidence preview
+            evidence_preview = [
+                f"[{ev.source_type.upper()}:{ev.source_id}] {ev.field}: {str(ev.value)[:100]}"
+                for ev in evidence_obj.evidence[:3]
+            ]
 
             res = QuestionEvaluationResult(
                 question_id=qid,
@@ -123,11 +144,14 @@ class EvaluationPipeline:
                 expected_decision=expected_dec,
                 actual_decision=actual_dec,
                 decision_match=dec_match,
+                passed=passed,
+                failure_reason=failure_reason,
                 citations=citations,
                 citations_valid=is_valid_cit,
                 has_unsupported_claims=has_unsupported,
                 latency_ms=round(latency_ms, 2),
-                notes=q_item.get("notes")
+                notes=q_item.get("notes"),
+                evidence_preview=evidence_preview
             )
             detailed_results.append(res)
             raw_eval_items.append(res.model_dump())
@@ -135,10 +159,18 @@ class EvaluationPipeline:
         metrics = evaluation_metrics.calculate(raw_eval_items)
         report_id = str(uuid.uuid4())
 
+        cat_status = catalogue_loader.get_status().get("status", "Unknown")
+        model_status = model_loader.get_status().get("instruction_model_type", "deterministic_fallback")
+
         report_response = EvaluationReportResponse(
             report_id=report_id,
             timestamp=datetime.now(timezone.utc).isoformat(),
             dataset_name=dataset_source,
+            total_cases_available=metrics["total_cases_available"],
+            total_cases_executed=metrics["total_cases_executed"],
+            total_cases_passed=metrics["total_cases_passed"],
+            total_cases_failed=metrics["total_cases_failed"],
+            total_cases_skipped=metrics["total_cases_skipped"],
             total_questions_tested=len(detailed_results),
             successfully_evaluated=len(detailed_results),
             groundedness_score=metrics["groundedness_score"],
@@ -147,7 +179,13 @@ class EvaluationPipeline:
             clarification_accuracy=metrics["clarification_accuracy"],
             unsupported_claim_rate=metrics["unsupported_claim_rate"],
             citation_validity_rate=metrics["citation_validity_rate"],
+            citation_coverage_rate=metrics["citation_coverage_rate"],
             avg_latency_ms=metrics["avg_latency_ms"],
+            latency_p50_ms=metrics["latency_p50_ms"],
+            latency_p90_ms=metrics["latency_p90_ms"],
+            latency_p99_ms=metrics["latency_p99_ms"],
+            data_readiness=cat_status,
+            model_readiness=model_status,
             compute_info={
                 "device": "CPU",
                 "offline": True,
@@ -158,8 +196,12 @@ class EvaluationPipeline:
 
         if not dry_run:
             report_generator.save_report(report_response.model_dump())
+            try:
+                from app.db.database import db
+                db.save_evaluation_run(report_response.model_dump())
+            except Exception as e:
+                SafeLogger.warning(f"Could not persist evaluation run to database: {str(e)}")
 
         return report_response
 
-from typing import Tuple
 evaluation_pipeline = EvaluationPipeline()

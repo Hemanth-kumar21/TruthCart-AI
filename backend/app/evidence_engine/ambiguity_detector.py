@@ -32,17 +32,23 @@ class AmbiguityDetector:
         if num_matches == 1:
             return False, None
 
-        # If user asked very generic category query ("shirts", "shoes", "laptop") without price/brand/attributes
+        # Direct availability checks (e.g. "Is there any footwear available?") are answered directly
+        q_raw = parsed_query.get("query", "").lower()
+        is_availability_query = any(phrase in q_raw for phrase in ["available", "in stock", "is there any", "do you have", "what footwear", "any footwear", "are there"])
+
         has_specific_filters = any([
-            parsed_query.get("max_price"),
-            parsed_query.get("min_price"),
+            parsed_query.get("max_price") is not None,
+            parsed_query.get("min_price") is not None,
             parsed_query.get("brand"),
             parsed_query.get("color"),
             parsed_query.get("material"),
-            parsed_query.get("required_attributes")
+            parsed_query.get("required_attributes"),
+            parsed_query.get("requested_subtype"),
+            parsed_query.get("stock_required") is not None
         ])
 
-        if not has_specific_filters and num_matches > 1:
+        # If user asked a very broad generic query with multiple candidates (>= 2) without filters or availability check
+        if not has_specific_filters and not is_availability_query and num_matches >= 2:
             category = parsed_query.get("category") or "products"
             brands = sorted(list({c.get("attributes", {}).get("brand") for c in candidates if c.get("attributes", {}).get("brand")}))
             if brands:
@@ -50,5 +56,6 @@ class AmbiguityDetector:
             return True, f"I found {num_matches} options matching '{category}'. Could you specify a preferred color, material, or budget?"
 
         return False, None
+
 
 ambiguity_detector = AmbiguityDetector()

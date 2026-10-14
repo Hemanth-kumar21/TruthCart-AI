@@ -46,6 +46,15 @@ data/policies/*
 data/test_questions/*
 !data/test_questions/.gitkeep
 
+# Temporary database locks and journals
+*.db-shm
+*.db-wal
+*.db-journal
+
+# Temporary test evaluation reports
+artifacts/evaluation_reports/eval_report_*.json
+!artifacts/evaluation_reports/eval_report_9a37b5ff-e84b-4c0e-ae1e-f30cc2c73fd8_20261012_170048.json
+
 # IDE and OS
 .vscode/
 .idea/

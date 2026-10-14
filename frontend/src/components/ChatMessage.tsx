@@ -1,5 +1,5 @@
 import React from "react";
-import { User, ShieldCheck, FileCheck, HelpCircle, Ban, Eye } from "lucide-react";
+import { User, ShieldCheck, FileCheck, HelpCircle, Ban, Eye, Scale } from "lucide-react";
 import type { ChatMessage as ChatMessageType } from "../types";
 import { ProductCard } from "./ProductCard";
 
@@ -7,12 +7,14 @@ interface ChatMessageProps {
   message: ChatMessageType;
   onOpenEvidence: (msg: ChatMessageType) => void;
   onSelectSuggestion?: (query: string) => void;
+  onReportIssue?: (msg: ChatMessageType) => void;
 }
 
 export const ChatMessage: React.FC<ChatMessageProps> = ({
   message,
   onOpenEvidence,
   onSelectSuggestion,
+  onReportIssue,
 }) => {
   const isUser = message.sender === "user";
   const decision = message.decision;
@@ -38,7 +40,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
   // Assistant Message
   return (
     <div className="flex justify-start mb-6 animate-fade-in">
-      <div className="flex items-start max-w-3xl space-x-3 w-full">
+      <div className="flex items-start max-w-3xl w-full space-x-3">
         {/* Assistant Avatar */}
         <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-indigo-700 to-blue-600 text-white flex items-center justify-center shrink-0 shadow-xs ring-2 ring-indigo-50">
           <ShieldCheck className="h-5 w-5" />
@@ -120,8 +122,60 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
             </div>
           )}
 
-          {/* Product Cards Grid if supported products present */}
-          {message.products && message.products.length > 0 && (
+          {/* Comparison Matrix Table if comparison data is present */}
+          {message.comparison_data && message.comparison_data.products.length >= 2 && (
+            <div className="pt-2">
+              <div className="flex items-center space-x-2 mb-3">
+                <Scale className="h-4 w-4 text-indigo-600" />
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Side-by-Side Product Comparison ({message.comparison_data.products.length} Products)
+                </span>
+              </div>
+              <div className="border border-slate-200 rounded-xl overflow-hidden bg-slate-50/50 shadow-xs">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="bg-slate-100/80 border-b border-slate-200">
+                        <th className="px-3.5 py-2.5 font-bold text-slate-500 uppercase text-[10px] w-32">Specification</th>
+                        {message.comparison_data.products.map((pid) => (
+                          <th key={pid} className="px-3.5 py-2.5 font-bold text-slate-900 min-w-44">
+                            <div className="flex flex-col space-y-1">
+                              <span className="truncate">{message.comparison_data!.product_titles[pid] || pid}</span>
+                              <span className="font-mono text-[10px] text-indigo-600 font-semibold">[PRODUCT:{pid}]</span>
+                            </div>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200/60 bg-white">
+                      {Object.entries(message.comparison_data.dimensions).map(([dimName, dimVals]) => (
+                        <tr key={dimName}>
+                          <td className="px-3.5 py-2 font-semibold text-slate-600 bg-slate-50/60">
+                            {dimName}
+                          </td>
+                          {message.comparison_data!.products.map((pid) => {
+                            const val = dimVals[pid];
+                            return (
+                              <td key={pid} className="px-3.5 py-2 text-slate-800">
+                                {val !== undefined ? (
+                                  Array.isArray(val) ? val.join(", ") : String(val)
+                                ) : (
+                                  <span className="text-slate-400 italic">Not documented</span>
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Product Cards Grid if supported products present (only if not a multi-product comparison table) */}
+          {(!message.comparison_data || message.comparison_data.products.length < 2) && message.products && message.products.length > 0 && (
             <div className="pt-2">
               <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-3">
                 Verified Catalogue Records ({message.products.length})
@@ -143,12 +197,24 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
             <span>
               {message.retrieval_status || "Ground Truth Retrieval"} • {message.model_status}
             </span>
-            <span>
-              {message.latency_ms ? `${message.latency_ms.toFixed(0)}ms latency` : ""}
-            </span>
+            <div className="flex items-center space-x-3">
+              {onReportIssue && (
+                <button
+                  onClick={() => onReportIssue(message)}
+                  className="text-slate-400 hover:text-indigo-600 transition-colors font-medium cursor-pointer"
+                  title="Submit feedback or report an incorrect claim to store owner"
+                >
+                  Report Issue
+                </button>
+              )}
+              <span>
+                {message.latency_ms ? `${message.latency_ms.toFixed(0)}ms latency` : ""}
+              </span>
+            </div>
           </div>
         </div>
       </div>
     </div>
   );
 };
+

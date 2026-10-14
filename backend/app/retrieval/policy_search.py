@@ -29,12 +29,23 @@ class PolicySearchEngine:
     def search(self, query: str) -> List[Tuple[PolicySection, float]]:
         """Searches policy document sections based on topic detection and keyword overlap."""
         if not policy_loader.is_ready:
+            policy_loader.load_from_database()
+        if not policy_loader.is_ready:
             return []
 
         q_lower = query.lower()
         topic = self.detect_policy_topic(query)
-        matches: List[Tuple[PolicySection, float]] = []
 
+        # A query must either trigger a policy topic or explicitly contain policy-intent words
+        has_policy_intent = topic is not None or any(
+            re.search(r'\b' + re.escape(w) + r'\b', q_lower)
+            for w in ["policy", "policies", "terms", "coverage", "covered", "rule", "rules"]
+        )
+
+        if not has_policy_intent:
+            return []
+
+        matches: List[Tuple[PolicySection, float]] = []
         all_sections = policy_loader.get_all_sections()
 
         for sec in all_sections:
@@ -43,9 +54,13 @@ class PolicySearchEngine:
             if topic and sec.topic == topic:
                 score += 2.0
 
-            # Content keyword matches
+            # Content keyword matches with domain-specific terms (ignoring generic stop words)
+            from app.retrieval.semantic_search import STOP_WORDS
             sec_text_lower = f"{sec.title} {sec.content}".lower()
-            q_words = re.findall(r'\b[a-zA-Z]{3,}\b', q_lower)
+            q_words = [
+                w for w in re.findall(r'\b[a-zA-Z]{3,}\b', q_lower)
+                if w not in STOP_WORDS and w not in ("under", "above", "have", "want", "need", "show", "tell", "cost", "price")
+            ]
             matched_words = 0
             for w in q_words:
                 if w in sec_text_lower:
@@ -54,7 +69,7 @@ class PolicySearchEngine:
             if q_words:
                 score += (matched_words / len(q_words)) * 1.5
 
-            if score > 0.6:
+            if score > 0.8:
                 matches.append((sec, score))
 
         # Sort descending by score
@@ -62,3 +77,4 @@ class PolicySearchEngine:
         return matches
 
 policy_search_engine = PolicySearchEngine()
+

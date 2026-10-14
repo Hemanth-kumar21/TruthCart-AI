@@ -6,96 +6,116 @@
 
 ---
 
-## 1. Executive Summary
+## 1. Executive Summary & Core Product Principle
 
-Traditional AI shopping assistants frequently hallucinate: inventing non-existent products, misquoting prices, fabricating return windows, and making unsupported promises about warranties and availability. 
+Traditional AI shopping assistants frequently hallucinate: inventing non-existent products, misquoting prices, fabricating return windows, and making unsupported promises about warranties and availability.
 
-**TruthCart AI** eliminates hallucinations by design. Built with an evidence-first architecture, TruthCart answers shoppers' queries using **only** the supplied product catalogue and official store policy document. When evidence is incomplete or absent, TruthCart refuses or clarifies deterministically rather than guessing.
+**TruthCart AI** eliminates hallucinations by design. Built with an evidence-first architecture, TruthCart answers shoppers' queries using **strictly verified evidence** from the active product catalogue and store policy documents. When evidence is incomplete or absent, TruthCart refuses or clarifies deterministically rather than guessing.
 
-### Core Architectural Invariants
-1. **The Catalogue is the Sole Source of Truth**: All prices, product titles, stock availability, and attributes originate strictly from ingested ground-truth records.
-2. **Deterministic Evidence Engine**: Python-based deterministic decision logic governs all claims. The language model **cannot** override an evidence decision.
-3. **Mandatory Server-Side Citation Validation**: Every factual claim is bound to a validated citation tag (`[PRODUCT:<id>]` or `[POLICY:<section>]`). Hallucinated or mismatching citations are caught and stripped server-side.
-4. **Transparent Data Readiness**: When official hackathon data or model checkpoints have not yet been placed by organisers, the system clearly reports *"Awaiting organiser catalogue"* instead of fabricating results.
-5. **100% Offline & CPU-Friendly**: Designed for CPU-only execution without external inference APIs (no OpenAI, no Gemini, no external network dependencies).
+### The Fundamental Data Flow
 
----
-
-## 2. System Architecture & Data Flow
-
-```mermaid
-flowchart TD
-    User([Shopper Query]) --> QU[Query Understanding Engine]
-    QU --> CT[Multi-Turn Constraint Tracker]
-    CT --> HR[Hybrid Retrieval Engine]
-    
-    subgraph Data Sources [Ground Truth Sources]
-        Cat[(Product Catalogue CSV/JSON)] --> CatL[Catalogue Loader]
-        Pol[(Store Policy Document)] --> PolL[Policy Loader]
-        CatL --> VI[Local CPU Vector Index / TF-IDF]
-    end
-    
-    CatL --> HR
-    PolL --> HR
-    VI --> HR
-    
-    HR --> Cand[Candidate Evidence Records]
-    Cand --> EE[Evidence Engine]
-    
-    subgraph Deterministic Evidence Engine
-        AD[Ambiguity Detector]
-        EC[Evidence Checker]
-        RH[Refusal Handler]
-        AD --> DE[Decision Logic]
-        EC --> DE
-        RH --> DE
-    end
-    
-    DE -->|ANSWER| EV_Ans[Evidence Object: Verified Claims]
-    DE -->|CLARIFY| EV_Clar[Evidence Object: Follow-up Question]
-    DE -->|REFUSE| EV_Ref[Evidence Object: Polite Refusal]
-    
-    EV_Ans --> RG[Evidence-Grounded Response Generator]
-    EV_Clar --> RG
-    EV_Ref --> RG
-    
-    RG --> CV[Server-Side Citation Validator]
-    CV --> UI[React Frontend & Interactive Evidence Drawer]
+```
+OWNER UPLOADS OFFICIAL DATA (CSV/JSON)
+       │
+       ▼
+VALIDATION & PREVIEW (Errors & Warnings)
+       │
+       ▼
+CATALOGUE INGESTION (Database Persistence)
+       │
+       ▼
+KNOWLEDGE BASE / VECTOR INDEX REBUILD
+       │
+       ▼
+OWNER ACTIVATES CATALOGUE (Atomic Switch)
+       │
+       ▼
+CUSTOMER SHOPPING ASSISTANT & CATALOG BROWSER
+       │
+       ▼
+EVIDENCE-BACKED ANSWERS WITH CITATIONS ([PRODUCT:ID], [POLICY:ID])
+       │
+       ▼
+CUSTOMER FEEDBACK SUBMISSION
+       │
+       ▼
+OWNER REVIEWS FEEDBACK QUEUE (Pending / Under Review)
+       │
+       ▼
+OWNER MAKES VERIFIED CORRECTION (Source-Checked)
+       │
+       ▼
+DATABASE UPDATED ──► AUDIT LOG RECORDED ──► KNOWLEDGE BASE REFRESHES
 ```
 
-### Retrieval & Decision Pipeline:
-1. **Query Understanding**: Deterministically parses budget bounds (`under 2k` -> max_price: 2000), exact product identifiers (`TC-DEV-101`), colors, materials, stock criteria, and code-mixed phrasing.
-2. **Hybrid Retrieval**: Combines structured numeric filtering with local CPU semantic vector search and isolated policy retrieval.
-3. **Evidence Engine**:
-   - **ANSWER**: Approved only when matching products exist, prices and stock match ground truth, and the request is unambiguous.
-   - **CLARIFY**: Triggered when broad queries return multiple ambiguous candidates, or constraints conflict (e.g. min > max).
-   - **REFUSE**: Triggered when products are out-of-catalogue, requested attributes are unrecorded, or policy terms are unsupported.
-4. **Citation Enforcement**: Automatically pairs claims with source IDs and validates all citations before display.
+### Critical Invariants
+1. **The Owner Controls Official Data**: Customers can browse, query, and submit feedback, but **never** modify official product prices, stock, or descriptions directly.
+2. **Customer Feedback Never Auto-Modifies Ground Truth**: Customer feedback is treated as a report of a suspected issue, not verified truth. An owner must review, check official sources, and approve verified corrections.
+3. **Atomic Catalogue Activation**: Only one catalogue version is active at any time. When a new catalogue is activated, all customer queries switch immediately to the new index.
+4. **Deterministic Evidence Engine**: Python-based decision logic governs all claims. The language model **cannot** override an evidence decision.
+5. **Mandatory Server-Side Citation Validation**: Every factual claim is bound to a validated citation tag (`[PRODUCT:<id>]` or `[POLICY:<section>]`). Hallucinated citations are rejected server-side.
+6. **Separate, Truthful Readiness States**: 7 independent sub-systems report real readiness (Model, Dataset, Catalogue DB, Vector Index, Policy Index, Evidence Engine, API). No fake percentages or development fixtures masquerading as production.
+7. **100% Offline & CPU-Friendly**: Operates fully on CPU with zero external API calls (no OpenAI, no Gemini, no external network dependencies).
 
 ---
 
-## 3. Project Structure
+## 2. Authentication & Roles
+
+TruthCart AI enforces strict role-based access control (RBAC) powered by server-side bcrypt password hashing and PyJWT token validation.
+
+| Feature / Permission | Customer Role (`CUSTOMER`) | Store Owner Role (`OWNER`) |
+| :--- | :---: | :---: |
+| **Account Creation** | Public signup (strictly `CUSTOMER`) | Pre-provisioned admin / Seed |
+| **Shopping Assistant Chat** | Yes | Yes |
+| **Product Browse & Filter** | Yes | Yes |
+| **View Store Policies** | Yes | Yes |
+| **Submit Feedback & Rate** | Yes (saved to DB) | Yes |
+| **View Feedback History** | Private feedback only | Full store feedback queue |
+| **Upload Catalogue Files** | Rejected (403 Forbidden) | Full CSV/JSON/TSV support |
+| **Validate & Preview Ingestion** | Rejected (403 Forbidden) | Full error & warning reports |
+| **Import & Activate Catalogue** | Rejected (403 Forbidden) | Atomic DB activation |
+| **Direct Product Data Edit** | Strictly Forbidden | Verified edits with audit log |
+| **Rebuild Knowledge Base Index** | Rejected (403 Forbidden) | Full CPU index rebuild |
+| **System Health & Audit Logs** | Rejected (403 Forbidden) | Full immutable audit trail |
+
+### Demo Credentials for Hackathon Evaluators
+- **Store Owner:** `owner@truthcart.ai` / `AdminTruthCart2026!`
+- **Customer:** `customer@truthcart.ai` / `Customer123!`
+*(Quick-login buttons are also provided in the frontend Auth Modal for instant evaluation).*
+
+---
+
+## 3. Project Architecture & Directory Layout
 
 ```
 TruthCart-AI/
 ├── backend/
 │   ├── app/
-│   │   ├── main.py                     # FastAPI application entrypoint & lifecycle
+│   │   ├── main.py                     # FastAPI entrypoint, router registrations & lifespan
 │   │   ├── api/
-│   │   │   ├── health.py               # GET /api/health (readiness status)
-│   │   │   ├── catalogue.py            # GET /api/catalogue/status & POST /reload
+│   │   │   ├── auth.py                 # POST /api/auth (signup, login, owner-login, me)
+│   │   │   ├── catalogue.py            # POST /upload-preview, /import, /{id}/activate, /versions
+│   │   │   ├── products.py             # GET /api/products (browse & filter), PUT /{id} (verified update)
+│   │   │   ├── feedback.py             # POST /submit, GET /my-feedback, GET /owner-queue, PUT /status
+│   │   │   ├── policies.py             # GET /active, PUT /active (owner update)
+│   │   │   ├── audit_logs.py           # GET /api/audit-logs (owner audit trail)
+│   │   │   ├── health.py               # GET /api/health (readiness & fallback state)
+│   │   │   ├── system.py               # GET /api/system/stats & /readiness (7-subsystem check)
 │   │   │   ├── chat.py                 # POST /api/chat (shopping dialogue endpoint)
 │   │   │   └── evaluation.py           # POST /api/evaluation/run (benchmark endpoint)
 │   │   ├── core/
-│   │   │   ├── config.py               # Environment configuration & path resolvers
-│   │   │   └── logging_config.py       # Safe logging & sensitive data sanitization
+│   │   │   ├── config.py               # Paths, JWT parameters, SQLite DB configuration
+│   │   │   ├── auth.py                 # Bcrypt, JWT tokens, require_owner, require_customer
+│   │   │   └── logging_config.py       # Safe logging & sanitization
+│   │   ├── db/
+│   │   │   └── database.py             # SQLite persistence, WAL, schema & seeding
 │   │   ├── ingestion/
-│   │   │   ├── catalogue_loader.py     # CSV/JSON loader, column mapping, duplicates
+│   │   │   ├── catalogue_loader.py     # DB-backed catalogue loader with fixture fallbacks
 │   │   │   ├── policy_loader.py        # Section parser (Returns, Shipping, Warranty)
 │   │   │   └── data_validator.py       # Safe price parsing & attribute normalization
 │   │   ├── retrieval/
 │   │   │   ├── structured_search.py    # Deterministic price, stock, attribute filter
-│   │   │   ├── semantic_search.py      # CPU vector index & cosine similarity
+│   │   │   ├── semantic_search.py      # Local CPU vector index & cosine similarity
 │   │   │   ├── policy_search.py        # Isolated policy section retrieval
 │   │   │   └── hybrid_retriever.py     # Unified retrieval pipeline
 │   │   ├── evidence_engine/
@@ -113,235 +133,183 @@ TruthCart-AI/
 │   │   ├── conversation/
 │   │   │   ├── constraint_tracker.py   # Multi-turn filter preservation
 │   │   │   └── context_manager.py      # Dialogue session storage
-│   │   ├── evaluation/
-│   │   │   ├── evaluate.py             # Benchmark execution pipeline
-│   │   │   ├── metrics.py              # Groundedness, accuracy, latency metrics
-│   │   │   └── report_generator.py     # Machine-readable report serialization
 │   │   └── schemas/
 │   │       ├── request.py              # Pydantic request models
-│   │       └── response.py             # EvidenceObject & response models
-│   ├── tests/                          # 32 Pytest automated tests (100% pass)
-│   ├── requirements.txt                # Backend dependencies
-│   └── .env.example                    # Example configuration file
+│   │       └── response.py             # EvidenceObject, Catalogue & Feedback schemas
+│   ├── tests/                          # 66 Pytest automated tests (100% pass)
+│   │   ├── test_master_workflows.py    # 14 E2E acceptance tests for RBAC, Catalog, & Feedback
+│   │   └── ...                         # 52 Core regression tests
+│   └── requirements.txt                # Backend dependencies (fastapi, uvicorn, pydantic, pyjwt, bcrypt)
 ├── frontend/
 │   ├── src/
 │   │   ├── components/
-│   │   │   ├── Header.tsx              # Brand, status badges, quick actions
-│   │   │   ├── ReadinessBanner.tsx     # Organiser ingestion status & dev toggle
-│   │   │   ├── ChatMessage.tsx         # User & assistant turns with evidence triggers
+│   │   │   ├── Header.tsx              # Role badge, tab navigation, quick role-switcher
+│   │   │   ├── AuthModal.tsx           # Customer & Owner login / signup modal with pre-fills
+│   │   │   ├── FeedbackModal.tsx       # Customer feedback submission with ratings & SKU
+│   │   │   ├── ProductBrowseView.tsx   # Live product search, category chips, budget & stock filters
+│   │   │   ├── MyFeedbackView.tsx      # Customer private feedback history
+│   │   │   ├── PolicyView.tsx          # Store policy viewer
+│   │   │   ├── OwnerDashboardView.tsx  # Metrics, 7-point readiness checklist, recent audit logs
+│   │   │   ├── OwnerCatalogueView.tsx  # Upload, validation preview, import, and activation
+│   │   │   ├── OwnerProductsView.tsx   # Product management with edit modal and archive action
+│   │   │   ├── OwnerFeedbackView.tsx   # Owner review queue & verified correction workflow
+│   │   │   ├── OwnerPolicyView.tsx     # Policy document editor
+│   │   │   ├── OwnerAuditView.tsx      # Immutable audit trail table
+│   │   │   ├── ChatMessage.tsx         # User & assistant turns with evidence badges
 │   │   │   ├── ProductCard.tsx         # Verified catalogue cards with citations
 │   │   │   ├── EvidenceDrawer.tsx      # Deep ground truth inspector drawer
 │   │   │   └── EvaluationModal.tsx     # 150-question benchmark runner & visualizer
-│   │   ├── services/api.ts             # Typed API service
-│   │   ├── types/index.ts              # TypeScript schemas
-│   │   ├── App.tsx                     # Main shopping assistant application
-│   │   ├── main.tsx                    # React DOM entrypoint
-│   │   └── index.css                   # Tailwind v4 styling & animations
+│   │   ├── services/api.ts             # Typed API service with token storage
+│   │   ├── types/index.ts              # Complete TypeScript schemas
+│   │   └── App.tsx                     # Top-level state and view orchestration
 │   ├── package.json
 │   └── vite.config.ts                  # Vite config with backend proxy
 ├── data/
+│   ├── truthcart.db                    # Persistent SQLite database (WAL mode)
 │   ├── products/                       # Official organiser product catalogue folder
 │   ├── policies/                       # Official organiser policy documents folder
 │   ├── test_questions/                 # Official 150 test questions dataset folder
 │   └── development_fixtures/           # Isolated synthetic test fixtures
 ├── models/
-│   ├── embedding_model/                # Organiser embedding checkpoint directory
-│   └── instruction_model/              # Organiser instruction checkpoint directory
+│   ├── embedding_model/                # Local embedding checkpoint directory
+│   └── instruction_model/              # Local instruction checkpoint directory
 ├── artifacts/
 │   ├── indexes/                        # Persisted vector indexes
 │   └── evaluation_reports/             # Persisted benchmark evaluation JSON reports
-├── README.md
-└── .gitignore
+└── README.md
 ```
 
 ---
 
-## 4. Setup & Installation
+## 4. Setup & Running Locally
 
 ### Prerequisites
 - **Python**: 3.10+ (tested on Python 3.14)
 - **Node.js**: 18+ & **npm**: 9+
 - **OS**: Windows, macOS, or Linux
 
-### Step 1: Clone Repository
-```bash
-git clone <repository_url>
-cd TruthCart-AI
-```
-
-### Step 2: Backend Setup
+### Step 1: Install Backend Dependencies
 ```bash
 cd backend
 python -m pip install -r requirements.txt
 ```
 
-### Step 3: Frontend Setup
+### Step 2: Install Frontend Dependencies & Build
 ```bash
 cd ../frontend
 npm install
 npm run build
 ```
 
----
-
-## 5. Running the Application
-
-### 1. Launch the Backend Server
-From the `backend/` directory:
+### Step 3: Run the Servers
+**Terminal 1 — Backend Server:**
 ```bash
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+cd backend
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 - API Documentation (Swagger): `http://127.0.0.1:8000/docs`
 - Health Endpoint: `http://127.0.0.1:8000/api/health`
+- Readiness Endpoint: `http://127.0.0.1:8000/api/system/readiness`
 
-### 2. Launch the Frontend Application
-From the `frontend/` directory in a new terminal:
+**Terminal 2 — Frontend Dev Server:**
 ```bash
+cd frontend
 npm run dev
 ```
-- Open `http://127.0.0.1:5173/` in any modern web browser.
+- Open `http://127.0.0.1:5173/` in any browser.
 
 ---
 
-## 6. How to Insert Organiser-Provided Files
+## 5. The 10-Step Hackathon Demo Walkthrough
 
-When the hackathon organisers provide the official files, place them in the corresponding directories. TruthCart AI detects them automatically upon server restart or via the `/api/catalogue/reload` endpoint:
+TruthCart AI is pre-configured to execute the complete judge evaluation journey:
 
-| Resource | Target Destination | Supported Formats |
-| :--- | :--- | :--- |
-| **5,000-Product Catalogue** | `data/products/` | CSV (`catalogue.csv`) or JSON (`catalogue.json`) |
-| **Store Policy Document** | `data/policies/` | Plain text (`policy.txt`) or Markdown (`policy.md`) |
-| **150 Test Questions** | `data/test_questions/` | JSON (`evaluation_questions.json`) |
-| **Local Embedding Model** | `models/embedding_model/` | PyTorch / HF / ONNX checkpoint directory |
-| **Local Instruction Model** | `models/instruction_model/` | GGUF / Llama.cpp / HF checkpoint directory |
+1. **Step 1 — Owner Login & Dashboard**:
+   - Click **"Demo: Switch to Owner View"** in the top navigation bar (or log in as `owner@truthcart.ai`).
+   - Observe the **7 Subsystem Readiness Cards** (Model, Dataset, Catalogue DB, Vector Index, Policy Index, Evidence Engine, API).
+   - Observe the active catalogue version (`v1.0.0`, 16 products) and live audit log.
 
-*Note: As required by Hackathon rules, when official files are not yet present, the system defaults to "Awaiting Organiser Catalogue" mode. Synthetic fixtures in `data/development_fixtures/` can be explicitly enabled for development and testing.*
+2. **Step 2 — Catalogue Upload & Validation**:
+   - Open the **"Catalogue Upload"** tab.
+   - Select a CSV or JSON product file.
+   - The server parses records, verifies required schemas, flags malformed rows, and generates a validation preview with errors and warnings.
 
----
+3. **Step 3 — Import & Atomic Activation**:
+   - Click **"Import Validated Catalogue"** to persist records into the database.
+   - Click **"Activate This Catalogue"** to switch the active store catalogue atomically. The local CPU vector index automatically rebuilds.
 
-## 7. API Reference
+4. **Step 4 — Customer Login**:
+   - Click **"Demo: Switch to Customer View"** (or log in as `customer@truthcart.ai`).
+   - The view switches immediately to the Customer Shopping Assistant.
 
-### `GET /api/health`
-Returns system status, team metadata, and readiness states.
-```json
-{
-  "status": "ok",
-  "project_name": "TruthCart AI",
-  "team_name": "TalentX",
-  "version": "1.0.0",
-  "data_readiness": {
-    "catalogue_ready": true,
-    "policy_ready": true,
-    "embedding_model_ready": true,
-    "instruction_model_ready": true,
-    "is_using_synthetic_fixtures": true,
-    "message": "Running with Synthetic Development Fixtures"
-  },
-  "model_readiness": {
-    "execution_mode": "Offline Local / CPU",
-    "external_api_calls_enabled": false
-  }
-}
-```
+5. **Step 5 — Shopping Assistant Query**:
+   - Ask: *"Show me products under ₹2,000 that are in stock."*
+   - TruthCart parses numeric budget constraints, filters in-stock items, and responds with verified products accompanied by `[PRODUCT:ID]` citations and green evidence badges.
 
-### `POST /api/chat`
-Handles conversational shopping queries with traceable evidence.
-**Request:**
-```json
-{
-  "message": "Show me cotton shirts under 1500",
-  "conversation_id": "optional-session-id"
-}
-```
-**Response:**
-```json
-{
-  "decision": "ANSWER",
-  "response_text": "Here are the products matching your request directly from our catalogue: ...",
-  "products": [
-    {
-      "product_id": "TC-DEV-101",
-      "title": "Classic Cotton Oxford Shirt",
-      "price": 1499.0,
-      "stock_status": "In Stock",
-      "citation": "[PRODUCT:TC-DEV-101]"
-    }
-  ],
-  "citations": ["[PRODUCT:TC-DEV-101]"],
-  "evidence": {
-    "decision": "ANSWER",
-    "query": "Show me cotton shirts under 1500",
-    "evidence": [
-      {
-        "source_type": "product",
-        "source_id": "TC-DEV-101",
-        "field": "price",
-        "value": "₹1,499.00"
-      }
-    ],
-    "unsupported_fields": []
-  },
-  "latency_ms": 1.2,
-  "conversation_id": "..."
-}
-```
+6. **Step 6 — Trust Test (Hallucination Defense)**:
+   - Ask: *"Does the soundbar have waterproof rating and what is the return window for clothing?"*
+   - TruthCart cites `[POLICY:RETURNS]` for returns, but honestly declares that waterproof rating is unlisted for the soundbar. It refuses to fabricate ungrounded claims.
 
-### `POST /api/evaluation/run`
-Executes automated benchmarks against test datasets and records results to `artifacts/evaluation_reports/`.
+7. **Step 7 — Customer Feedback Submission**:
+   - Click **"Browse Products"**, pick a product (e.g. Wireless Noise-Cancelling Headphones), and click **"Report Issue"**.
+   - Submit a report: *"Please verify supplier warranty duration"* with a 4-star rating.
+   - Click **"My Feedback"** to verify that your feedback is saved in your private customer history with status `PENDING`.
+
+8. **Step 8 — Owner Review Queue**:
+   - Switch back to Owner view. Navigate to **"Feedback Queue"**.
+   - The customer's feedback item appears in the queue.
+   - Click **"Verified Correction"** or update status to `UNDER_REVIEW` with an owner note.
+
+9. **Step 9 — Verified Correction & Index Refresh**:
+   - Edit the product specification or price in the verified product editor.
+   - Save the change: the product record is updated in the database, an audit entry is written to `audit_logs`, and the retrieval index refreshes automatically.
+   - Return to the customer assistant: the updated fact is now active and cited.
+
+10. **Step 10 — Evaluation Framework**:
+    - Click **"Run Evaluation"** in the header to execute automated test cases.
+    - View truthful metrics: groundedness score, refusal accuracy, clarification rate, and latency.
 
 ---
 
-## 8. Automated Tests & Verification
+## 6. Automated Test Suites & Acceptance Verification
 
-TruthCart AI includes a test suite covering all critical guardrails, edge cases, and RAG components.
+TruthCart AI contains **66 automated tests** that execute natively via pytest.
 
-To run the complete test suite:
 ```bash
 cd backend
 python -m pytest tests/ -v
 ```
 
-### Test Coverage Highlights:
-- **`test_catalogue_loader.py`**: CSV and JSON parsing, missing fields rejection, duplicate product preservation.
-- **`test_policy_loader.py`**: Returns, Shipping, and Warranty section extraction and identifier traceability.
-- **`test_structured_search.py`**: Exact SKU lookups, numeric price filtering, stock availability checks.
-- **`test_evidence_engine.py`**: ANSWER, CLARIFY, and REFUSE decisions with evidence objects.
-- **`test_citation_validator.py`**: Validates true citations, rejects hallucinated tags, sanitizes text.
-- **`test_query_understanding.py`**: Numeric limits (`under 2k`), code-mixed phrasing (`kavali`), product IDs.
-- **`test_conversation_context.py`**: Multi-turn constraint retention (budget + category + material).
-- **`test_guardrails.py`**: Rejects unsupported claims, handles out-of-catalogue products, detects conflicting constraints.
-- **`test_api_endpoints.py`**: End-to-end integration tests on all FastAPI routes.
+### Test Suite Summary (66 Passed in ~5s)
+
+| Test Module | Tests | Description |
+| :--- | :---: | :--- |
+| `test_master_workflows.py` | 14 | Customer vs Owner RBAC, 403 enforcement, CSV upload/preview, catalogue activation, persistent customer feedback, owner verified correction, and audit logs. |
+| `test_scenarios_20.py` | 20 | 20 core retail shopping scenarios: exact SKU, price filter, stock filter, out-of-stock, unrecorded attributes, policy citations, comparisons, ambiguity, refusal, prompt injection defense. |
+| `test_catalogue_loader.py` | 4 | CSV/JSON parsing, schema normalization, duplicate preservation. |
+| `test_policy_loader.py` | 3 | Policy sectioning, identifier extraction, safe markdown retrieval. |
+| `test_structured_search.py` | 4 | Strict numeric range filters, category matching, stock availability. |
+| `test_evidence_engine.py` | 4 | ANSWER, CLARIFY, and REFUSE decisions with structured evidence objects. |
+| `test_citation_validator.py` | 4 | Rejection of hallucinated citations, tag sanitization. |
+| `test_query_understanding.py` | 4 | Budget extraction, entity identification, code-mixed natural language parsing. |
+| `test_conversation_context.py` | 3 | Multi-turn constraint retention and clearing. |
+| `test_guardrails.py` | 3 | Rejection of out-of-catalogue claims and conflicting budget limits. |
+| `test_api_endpoints.py` | 3 | FastAPI HTTP endpoints end-to-end integration. |
 
 ---
 
-## 9. Evaluation Framework & Metrics
+## 7. Known Limitations & Clean Fallback Architecture
 
-TruthCart AI implements a quantitative evaluation framework for measuring RAG performance:
-
-- **Groundedness Score**: Percentage of claims verified against ground truth sources.
-- **Refusal Accuracy**: Accuracy when handling out-of-catalogue or unsupported questions (target: 100%).
-- **Clarification Accuracy**: Accuracy when asking focused questions for ambiguous or conflicting requests.
-- **Unsupported-Claim Rate**: Frequency of unverified factual assertions (target: 0.0%).
-- **Citation Validity Rate**: Percentage of citations matching valid, retrieved records (target: 100%).
-- **Query Latency**: Measured in milliseconds on local CPU.
+1. **Local Model Fallback**: If an organizer-supplied GGUF/PyTorch model checkpoint is not placed in `models/instruction_model/`, TruthCart automatically engages its **Deterministic Grounded Rule Generator**. Grounded responses, evidence checking, and citation validation remain 100% active.
+2. **CPU Execution Speed**: All search, filtering, and vector similarity calculations run natively on CPU. Cold-start indexing takes ~1-2 seconds; subsequent queries resolve in < 5ms.
+3. **Organiser File Placement**: When official files are provided, simply drop them into `data/products/` or upload them directly through the Store Owner catalogue portal.
 
 ---
 
-## 10. Known Limitations & Troubleshooting
-
-1. **CPU Execution Speed**: On constrained CPU devices, cold-start index initialization takes ~1-2 seconds for large catalogues. Once cached in `artifacts/indexes/`, queries resolve in < 5ms.
-2. **Missing Organiser Data**: If the official catalogue is not yet mounted in `data/products/`, the app accurately displays *"Awaiting Organiser Catalogue"*. Click *"Load Development Fixtures for Testing"* in the UI banner to verify the interface and evaluation pipeline.
-3. **Port Conflicts**: If port 8000 or 5173 is already occupied, specify alternatives:
-   ```bash
-   python -m uvicorn app.main:app --port 8001
-   npm run dev -- --port 5174
-   ```
-
----
-
-## 11. Team TalentX — Design Principles
+## 8. Team TalentX — Design Principles
 
 > *"The catalogue provides the facts.  
 > Retrieval finds the evidence.  
 > The Evidence Engine decides what may be claimed.  
-> The LLM communicates only within those limits."*
+> The LLM communicates only within those limits.  
+> Customer feedback reports issues; the Owner verifies the truth."*

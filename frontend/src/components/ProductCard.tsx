@@ -1,15 +1,21 @@
 import React from "react";
-import { Star, Check, X, FileText } from "lucide-react";
-import type { ProductResult } from "../types";
+import { Star, Check, X, FileText, MessageSquare, AlertCircle } from "lucide-react";
+import type { ProductResult, ProductItem } from "../types";
+
+export type CardProduct = ProductResult | (ProductItem & { citation?: string });
 
 interface ProductCardProps {
-  product: ProductResult;
+  product: CardProduct;
   onViewEvidence?: (citation: string) => void;
+  onAskInChat?: (query: string) => void;
+  onReportProduct?: (productId: string) => void;
 }
 
 export const ProductCard: React.FC<ProductCardProps> = ({
   product,
   onViewEvidence,
+  onAskInChat,
+  onReportProduct,
 }) => {
   const isInStock = product.stock_status.toLowerCase().includes("in stock") || product.stock_status.toLowerCase() === "available";
   const attrs = Object.entries(product.attributes || {});
@@ -23,14 +29,20 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             {product.product_id}
           </span>
 
-          <button
-            onClick={() => onViewEvidence && onViewEvidence(product.citation)}
-            className="text-[11px] font-mono font-medium text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100/70 px-2 py-0.5 rounded-md border border-indigo-100 flex items-center space-x-1 cursor-pointer transition-colors"
-            title="Inspect Ground Truth Evidence for this product"
-          >
-            <FileText className="h-3 w-3" />
-            <span>{product.citation}</span>
-          </button>
+          {product.citation ? (
+            <button
+              onClick={() => onViewEvidence && onViewEvidence(product.citation!)}
+              className="text-[11px] font-mono font-medium text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100/70 px-2 py-0.5 rounded-md border border-indigo-100 flex items-center space-x-1 cursor-pointer transition-colors"
+              title="Inspect Ground Truth Evidence for this product"
+            >
+              <FileText className="h-3 w-3" />
+              <span>{product.citation}</span>
+            </button>
+          ) : (
+            <span className="text-[11px] font-medium text-slate-500 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-200">
+              {product.category}
+            </span>
+          )}
         </div>
 
         {/* Title */}
@@ -96,6 +108,30 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           )}
         </div>
       </div>
+
+      {/* Action buttons if handlers provided */}
+      {(onAskInChat || onReportProduct) && (
+        <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
+          {onAskInChat && (
+            <button
+              onClick={() => onAskInChat(`Tell me about ${product.title}`)}
+              className="text-indigo-600 hover:text-indigo-700 font-medium flex items-center space-x-1 cursor-pointer"
+            >
+              <MessageSquare className="h-3 w-3" />
+              <span>Ask Assistant</span>
+            </button>
+          )}
+          {onReportProduct && (
+            <button
+              onClick={() => onReportProduct(product.product_id)}
+              className="text-slate-400 hover:text-rose-600 font-medium flex items-center space-x-1 cursor-pointer"
+            >
+              <AlertCircle className="h-3 w-3" />
+              <span>Report Issue</span>
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 };

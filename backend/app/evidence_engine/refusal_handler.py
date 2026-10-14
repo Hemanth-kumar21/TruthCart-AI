@@ -20,9 +20,11 @@ class RefusalHandler:
         return {
             "reason": f"Attribute '{missing_attribute}' is not documented for {product_id}.",
             "response_text": (
-                f"The available catalogue record for {product_title} [PRODUCT:{product_id}] "
-                f"does not contain information regarding '{missing_attribute}'. "
-                f"To ensure accuracy, I will not guess or assume unverified specifications."
+                f"The catalogue record for {product_title} [PRODUCT:{product_id}] "
+                f"does not specify information regarding '{missing_attribute}'. "
+                f"Please note that a missing field does not prove the product lacks this feature, "
+                f"but indicates it is unrecorded in our official dataset. "
+                f"To ensure 100% accuracy, I will not assume or fabricate unverified specifications."
             )
         }
 
@@ -43,6 +45,16 @@ class RefusalHandler:
             "response_text": (
                 "The official product catalogue is currently awaiting ingestion. "
                 "No live product facts or prices can be verified until the dataset is loaded."
+            )
+        }
+
+    @staticmethod
+    def create_prompt_injection_refusal() -> Dict[str, str]:
+        return {
+            "reason": "Security safeguard: Attempt to override evidence rules or bypass catalogue truth was blocked.",
+            "response_text": (
+                "I must decline this request. TruthCart AI operates strictly within verified catalogue "
+                "and policy evidence and cannot override its evidence-verification safeguards."
             )
         }
 

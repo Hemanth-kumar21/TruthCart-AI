@@ -13,7 +13,7 @@ def test_guardrail_unsupported_product_claim_rejected():
 
     assert decision.decision == "REFUSE"
     # Response generator cannot override REFUSE
-    text, prods, cits, _ = response_generator.generate_response(decision, [])
+    text, prods, cits, _, _ = response_generator.generate_response(decision, [])
     assert "unable to verify" in text.lower() or "not found" in text.lower()
     assert len(prods) == 0
 

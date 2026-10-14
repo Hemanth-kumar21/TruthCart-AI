@@ -58,11 +58,37 @@ class Settings(BaseModel):
 
     # CORS
     CORS_ORIGINS: List[str] = Field(default_factory=lambda: [
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000"
+        origin.strip()
+        for origin in os.getenv(
+            "CORS_ORIGINS",
+            "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000"
+        ).split(",")
+        if origin.strip()
     ])
+
+    # Database & Storage
+    DATABASE_PATH: Path = Field(
+        default_factory=lambda: Path(os.getenv("DATABASE_PATH", "data/truthcart.db"))
+    )
+
+    # Authentication & Security
+    JWT_SECRET_KEY: str = Field(
+        default_factory=lambda: os.getenv("JWT_SECRET_KEY", "truthcart-secret-key-talentx-2026-hackathon")
+    )
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
+    INITIAL_OWNER_EMAIL: str = Field(
+        default_factory=lambda: os.getenv("INITIAL_OWNER_EMAIL", "owner@truthcart.ai")
+    )
+    INITIAL_OWNER_PASSWORD: str = Field(
+        default_factory=lambda: os.getenv("INITIAL_OWNER_PASSWORD", "AdminTruthCart2026!")
+    )
+    INITIAL_CUSTOMER_EMAIL: str = Field(
+        default_factory=lambda: os.getenv("INITIAL_CUSTOMER_EMAIL", "customer@truthcart.ai")
+    )
+    INITIAL_CUSTOMER_PASSWORD: str = Field(
+        default_factory=lambda: os.getenv("INITIAL_CUSTOMER_PASSWORD", "Customer123!")
+    )
 
     def resolve_path(self, rel_path: Path) -> Path:
         if rel_path.is_absolute():
@@ -92,6 +118,9 @@ class Settings(BaseModel):
 
     def get_evaluation_report_path(self) -> Path:
         return self.resolve_path(self.EVALUATION_REPORT_DIR)
+
+    def get_database_path(self) -> Path:
+        return self.resolve_path(self.DATABASE_PATH)
 
 
 settings = Settings()

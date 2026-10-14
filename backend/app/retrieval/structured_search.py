@@ -72,6 +72,7 @@ class StructuredSearchEngine:
     def search(
         self,
         product_id: Optional[str] = None,
+        title: Optional[str] = None,
         max_price: Optional[float] = None,
         min_price: Optional[float] = None,
         category: Optional[str] = None,
@@ -103,10 +104,18 @@ class StructuredSearchEngine:
                 p for p in all_products
                 if pid_clean in p.get("product_id", "").upper()
             ]
-            return matched
+            if matched:
+                return matched
 
         results = []
         for p in all_products:
+            # Title filter (if specified)
+            if title:
+                title_clean = title.strip().lower()
+                prod_title_clean = p.get("title", "").strip().lower()
+                if title_clean != prod_title_clean and title_clean not in prod_title_clean:
+                    continue
+
             # Price constraints
             price = p.get("price")
             if price is not None:
@@ -120,7 +129,7 @@ class StructuredSearchEngine:
             # Stock requirement
             if stock_required is True:
                 stock_status = p.get("stock_status", "").lower()
-                if stock_status not in ("in stock", "available", "yes"):
+                if stock_status not in ("in stock", "available", "yes", "instock") and "in stock" not in stock_status:
                     continue
 
             # Rating constraint
@@ -129,12 +138,17 @@ class StructuredSearchEngine:
                 if rating is None or rating < min_rating:
                     continue
 
-            # Category filter
+            # Category filter (supports hierarchical paths and clothing/apparel equivalence)
             if category:
                 cat_lower = category.strip().lower()
                 prod_cat = p.get("category", "").lower()
                 prod_title = p.get("title", "").lower()
-                if cat_lower not in prod_cat and cat_lower not in prod_title:
+                is_cat_match = (
+                    cat_lower in prod_cat
+                    or cat_lower in prod_title
+                    or (cat_lower in ("apparel", "clothing") and ("apparel" in prod_cat or "clothing" in prod_cat))
+                )
+                if not is_cat_match:
                     continue
 
             # Brand filter
@@ -165,7 +179,7 @@ class StructuredSearchEngine:
             # General keyword filter (if provided)
             if keyword:
                 kw_lower = keyword.strip().lower()
-                content = f"{p.get('title', '')} {p.get('description', '')} {p.get('category', '')}".lower()
+                content = f"{p.get('product_id', '')} {p.get('title', '')} {p.get('description', '')} {p.get('category', '')}".lower()
                 if kw_lower not in content:
                     continue
 
@@ -174,3 +188,4 @@ class StructuredSearchEngine:
         return results
 
 structured_search_engine = StructuredSearchEngine()
+structured_search = structured_search_engine

@@ -1,4 +1,20 @@
 export type DecisionType = "ANSWER" | "CLARIFY" | "REFUSE";
+export type UserRole = "CUSTOMER" | "OWNER";
+
+export interface User {
+  id: string;
+  email: string;
+  full_name: string;
+  role: UserRole;
+  is_demo?: boolean;
+  created_at: string;
+}
+
+export interface AuthResponse {
+  access_token: string;
+  token_type: string;
+  user: User;
+}
 
 export interface EvidenceItem {
   source_type: "product" | "policy";
@@ -29,6 +45,13 @@ export interface ProductResult {
   citation: string;
 }
 
+export interface ComparisonData {
+  products: string[];
+  product_titles: Record<string, string>;
+  dimensions: Record<string, Record<string, any>>;
+  notes?: string[];
+}
+
 export interface ChatMessage {
   id: string;
   sender: "user" | "assistant";
@@ -36,6 +59,7 @@ export interface ChatMessage {
   text: string;
   decision?: DecisionType;
   products?: ProductResult[];
+  comparison_data?: ComparisonData | null;
   citations?: string[];
   evidence?: EvidenceObject;
   clarification_question?: string | null;
@@ -59,14 +83,7 @@ export interface HealthResponse {
   project_name: string;
   team_name: string;
   version: string;
-  data_readiness: {
-    catalogue_ready: boolean;
-    policy_ready: boolean;
-    embedding_model_ready: boolean;
-    instruction_model_ready: boolean;
-    is_using_synthetic_fixtures: boolean;
-    message: string;
-  };
+  data_readiness: ReadinessStatus;
   model_readiness: {
     embedding_model_ready: boolean;
     instruction_model_ready: boolean;
@@ -91,23 +108,132 @@ export interface CatalogueStatusResponse {
   data_source_path?: string | null;
 }
 
+export interface CatalogueVersion {
+  id: string;
+  version: string;
+  name: string;
+  filename: string;
+  owner_id: string;
+  record_count: number;
+  valid_count: number;
+  invalid_count: number;
+  status: string;
+  is_active: boolean;
+  created_at: string;
+  activated_at?: string | null;
+}
+
+export interface CataloguePreview {
+  filename: string;
+  total_rows: number;
+  valid_count: number;
+  invalid_count: number;
+  preview_records: any[];
+  all_valid_records?: any[];
+  errors: Array<{ row: number; product_id: string; issue: string }>;
+  warnings: string[];
+  inferred_version: string;
+}
+
+export interface ProductItem {
+  id?: string;
+  product_id: string;
+  title: string;
+  description: string;
+  category: string;
+  price: number;
+  stock_status: string;
+  rating?: number | null;
+  attributes?: Record<string, any>;
+  is_archived?: number | boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface FeedbackItem {
+  id: string;
+  customer_id: string;
+  customer_email: string;
+  feedback_type: string;
+  product_id?: string | null;
+  conversation_id?: string | null;
+  message: string;
+  rating?: number | null;
+  status: "PENDING" | "UNDER_REVIEW" | "RESOLVED" | "REJECTED";
+  is_demo?: boolean;
+  owner_resolution_note?: string | null;
+  created_at: string;
+  resolved_at?: string | null;
+  reviewed_by?: string | null;
+}
+
+export interface PolicyData {
+  is_ready: boolean;
+  id?: string;
+  title: string;
+  version: string;
+  content: string;
+  sections: Record<string, { section_id: string; title: string; content: string; topic: string }>;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface AuditLog {
+  id: string;
+  actor_id: string;
+  actor_role: string;
+  action: string;
+  target_id: string;
+  target_type: string;
+  details?: any;
+  timestamp: string;
+}
+
+export interface SystemStats {
+  active_catalogue?: CatalogueVersion | null;
+  active_policy?: any;
+  total_valid_products: number;
+  feedback: {
+    total: number;
+    pending: number;
+    under_review: number;
+    resolved: number;
+    rejected: number;
+  };
+  last_evaluation?: {
+    timestamp: string;
+    total_questions: number;
+    passed_count: number;
+    citation_validity_rate: number;
+  } | null;
+  recent_audits: AuditLog[];
+}
+
 export interface QuestionEvaluationResult {
   question_id: string;
   query: string;
   expected_decision?: string | null;
   actual_decision: string;
   decision_match?: boolean | null;
+  passed?: boolean;
+  failure_reason?: string | null;
   citations: string[];
   citations_valid: boolean;
   has_unsupported_claims: boolean;
   latency_ms: number;
   notes?: string | null;
+  evidence_preview?: string[];
 }
 
 export interface EvaluationReportResponse {
   report_id: string;
   timestamp: string;
   dataset_name: string;
+  total_cases_available?: number;
+  total_cases_executed?: number;
+  total_cases_passed?: number;
+  total_cases_failed?: number;
+  total_cases_skipped?: number;
   total_questions_tested: number;
   successfully_evaluated: number;
   groundedness_score: number;
@@ -116,7 +242,13 @@ export interface EvaluationReportResponse {
   clarification_accuracy: number;
   unsupported_claim_rate: number;
   citation_validity_rate: number;
+  citation_coverage_rate?: number;
   avg_latency_ms: number;
+  latency_p50_ms?: number;
+  latency_p90_ms?: number;
+  latency_p99_ms?: number;
+  data_readiness?: string | null;
+  model_readiness?: string | null;
   compute_info: Record<string, any>;
   details: QuestionEvaluationResult[];
 }

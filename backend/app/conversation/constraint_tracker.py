@@ -15,9 +15,35 @@ class ActiveConstraints:
         self.unresolved_clarification: Optional[str] = None
         self.attributes: Dict[str, str] = {}
 
+    def remove_constraints(self, keys: List[str]) -> None:
+        """Removes specific constraints or clears all filters."""
+        if "all" in keys:
+            self.clear()
+            return
+        for k in keys:
+            if k in ("budget", "price", "max_price"):
+                self.max_price = None
+                self.min_price = None
+            elif hasattr(self, k):
+                setattr(self, k, None)
+            if k in self.attributes:
+                del self.attributes[k]
+
     def update(self, updates: Dict[str, Any]) -> None:
         """Selectively updates constraints without blowing away existing untouched filters."""
+        if updates.get("has_constraint_removal"):
+            self.remove_constraints(updates.get("removed_constraints", []))
+
         if updates.get("category"):
+            if self.category and self.category != updates["category"]:
+                self.selected_product_id = None
+                self.attributes.clear()
+                if not updates.get("brand"):
+                    self.brand = None
+                if not updates.get("color"):
+                    self.color = None
+                if not updates.get("material"):
+                    self.material = None
             self.category = updates["category"]
         if updates.get("max_price") is not None:
             self.max_price = updates["max_price"]

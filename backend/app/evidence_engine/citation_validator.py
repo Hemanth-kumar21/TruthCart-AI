@@ -73,4 +73,6 @@ class CitationValidator:
         sanitized = re.sub(r'  +', ' ', sanitized).strip()
         return sanitized
 
+    sanitize_response = sanitize_text
+
 citation_validator = CitationValidator()

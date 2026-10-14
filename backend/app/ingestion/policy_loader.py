@@ -120,6 +120,18 @@ class PolicyLoader:
                 self.load_file(dev_file, is_official=False, is_synthetic=True)
                 return
 
+        if not force_fixtures:
+            try:
+                from app.db.database import db
+                db.init_db()
+                active_pol = db.get_active_policy()
+                if active_pol:
+                    SafeLogger.info(f"Loading active policy from database: {active_pol['title']} ({active_pol['version']})")
+                    self.load_from_database()
+                    return
+            except Exception as e:
+                SafeLogger.warning(f"Could not load policy from database: {str(e)}")
+
         official_dir = settings.get_policies_path()
         official_files = []
         if official_dir.exists():
@@ -144,10 +156,29 @@ class PolicyLoader:
         self.clear()
         SafeLogger.info("Official policy document not yet provided. System in 'Awaiting organiser policy' status.")
 
+    def load_from_database(self) -> None:
+        """Loads active policy document directly from database."""
+        from app.db.database import db
+        active_pol = db.get_active_policy()
+        if not active_pol:
+            self.clear()
+            return
+
+        self.parse_text(
+            text=active_pol["content"],
+            is_official=True,
+            is_synthetic=False,
+            source_name=f"{active_pol['title']} ({active_pol['version']})"
+        )
+
     def get_section_by_id(self, section_id: str) -> Optional[PolicySection]:
+        if not self.is_ready:
+            self.load_from_database()
         return self.sections.get(section_id.strip())
 
     def get_section_by_topic(self, topic: str) -> Optional[PolicySection]:
+        if not self.is_ready:
+            self.load_from_database()
         topic_upper = topic.strip().upper()
         for s in self.sections.values():
             if s.topic == topic_upper:
@@ -155,7 +186,10 @@ class PolicyLoader:
         return None
 
     def get_all_sections(self) -> List[PolicySection]:
+        if not self.is_ready:
+            self.load_from_database()
         return list(self.sections.values())
+
 
     def get_status(self) -> Dict[str, Any]:
         return {

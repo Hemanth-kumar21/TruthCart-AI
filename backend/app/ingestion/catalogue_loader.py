@@ -45,6 +45,12 @@ class CatalogueLoader:
         self.source_path = None
         self.is_ready = False
 
+    @property
+    def catalogue_version(self) -> str:
+        if self.source_path and "(" in self.source_path and ")" in self.source_path:
+            return self.source_path.split("(")[-1].rstrip(")")
+        return "v1.0.0"
+
     def _resolve_headers(self, columns: List[str], custom_mapping: Optional[Dict[str, str]] = None) -> Dict[str, str]:
         """Resolves file columns to canonical keys."""
         mapping = {}
@@ -183,6 +189,17 @@ class CatalogueLoader:
                 SafeLogger.info("Loading isolated synthetic development fixtures (forced).")
                 return self.load_file(fixture_json, is_official=False, is_synthetic=True)
 
+        # 1. Check database for active catalogue first
+        try:
+            from app.db.database import db
+            db.init_db()
+            active_cat = db.get_active_catalogue()
+            if active_cat:
+                SafeLogger.info(f"Loading active catalogue from database: {active_cat['name']} ({active_cat['version']})")
+                return self.load_from_database()
+        except Exception as e:
+            SafeLogger.warning(f"Could not load catalogue from database: {str(e)}")
+
         official_dir = settings.get_products_path()
         official_files = []
         if official_dir.exists():
@@ -191,13 +208,13 @@ class CatalogueLoader:
                     if not p.name.lower().startswith("readme") and not p.name.startswith("."):
                         official_files.append(p)
 
-        # 1. Load official file if present
+        # 2. Load official file if present
         if official_files:
             target_file = official_files[0]
             SafeLogger.info(f"Official organiser catalogue detected: {target_file.name}")
             return self.load_file(target_file, is_official=True, is_synthetic=False)
 
-        # 2. Check if synthetic fixtures should be loaded for testing/dev
+        # 3. Check if synthetic fixtures should be loaded for testing/dev
         if settings.LOAD_SYNTHETIC_DEV_DATA_WHEN_EMPTY:
             dev_dir = settings.get_dev_fixtures_path()
             fixture_json = dev_dir / "sample_catalogue.json"
@@ -205,10 +222,27 @@ class CatalogueLoader:
                 SafeLogger.info("Loading isolated synthetic development fixtures.")
                 return self.load_file(fixture_json, is_official=False, is_synthetic=True)
 
-        # 3. Official catalogue is not available
+        # 4. Official catalogue is not available
         self.clear()
         SafeLogger.info("Official organiser catalogue not yet provided. System in 'Awaiting organiser catalogue' status.")
         return self.get_status()
+
+    def load_from_database(self) -> Dict[str, Any]:
+        """Loads active catalogue products directly from persistent database."""
+        from app.db.database import db
+        active_cat = db.get_active_catalogue()
+        if not active_cat:
+            self.clear()
+            return self.get_status()
+
+        products = db.get_active_products()
+        source_name = f"{active_cat['name']} ({active_cat['version']})"
+        return self.load_from_records(
+            records=products,
+            is_official=True,
+            is_synthetic=False,
+            source_name=source_name
+        )
 
     def get_status(self) -> Dict[str, Any]:
         categories = sorted(list({p["category"] for p in self.products.values() if p.get("category")}))
@@ -233,9 +267,24 @@ class CatalogueLoader:
 
     def get_product(self, product_id: str) -> Optional[Dict[str, Any]]:
         """Exact lookup by product ID."""
-        return self.products.get(str(product_id).strip())
+        if not self.is_ready:
+            self.load_from_database()
+        pid_clean = str(product_id).strip()
+        if pid_clean in self.products:
+            return self.products[pid_clean]
+        try:
+            from app.db.database import db
+            prod = db.get_product_by_id(pid_clean)
+            if prod:
+                return prod
+        except Exception:
+            pass
+        return None
 
     def get_all_products(self) -> List[Dict[str, Any]]:
+        if not self.is_ready:
+            self.load_from_database()
         return list(self.products.values())
+
 
 catalogue_loader = CatalogueLoader()

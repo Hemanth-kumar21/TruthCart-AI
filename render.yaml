@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: truthcart-ai-backend
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: ENVIRONMENT
+        value: production
+      - key: CORS_ORIGINS
+        value: "http://localhost:5173,https://truthcart-ai.vercel.app"
+      - key: LOAD_SYNTHETIC_DEV_DATA_WHEN_EMPTY
+        value: "true"
