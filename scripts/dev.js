@@ -19,12 +19,11 @@ function checkBackendHealth() {
 async function main() {
   console.log('\x1b[36m%s\x1b[0m', '>> Starting TruthCart AI dev environment...');
 
-  // Ensure frontend dependencies are installed
+  // Ensure frontend packages are installed
   const frontendModules = path.join(__dirname, '..', 'frontend', 'node_modules');
   if (!fs.existsSync(frontendModules)) {
-    console.log('\x1b[33m%s\x1b[0m', '>> Frontend packages not detected. Installing now (npm --prefix frontend install)...');
-    const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-    spawnSync(npmCmd, ['--prefix', 'frontend', 'install'], { stdio: 'inherit' });
+    console.log('\x1b[33m%s\x1b[0m', '>> Installing frontend packages...');
+    spawnSync('npm --prefix frontend install', { stdio: 'inherit', shell: true });
   }
 
   // Check and start backend if not running
@@ -36,9 +35,8 @@ async function main() {
   } else {
     console.log('\x1b[33m%s\x1b[0m', '>> Launching Python backend on http://127.0.0.1:8000...');
     backendProc = spawn(
-      'python',
-      ['-m', 'uvicorn', 'app.main:app', '--app-dir', 'backend', '--host', '127.0.0.1', '--port', '8000', '--reload'],
-      { stdio: 'inherit' }
+      'python -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000 --reload',
+      { stdio: 'inherit', shell: true }
     );
 
     for (let i = 0; i < 20; i++) {
@@ -51,9 +49,9 @@ async function main() {
   }
 
   console.log('\x1b[36m%s\x1b[0m', '>> Launching Vite frontend...');
-  const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  const frontendProc = spawn(npmCmd, ['--prefix', 'frontend', 'run', 'dev'], {
+  const frontendProc = spawn('npm --prefix frontend run dev', {
     stdio: 'inherit',
+    shell: true,
   });
 
   const cleanup = () => {
