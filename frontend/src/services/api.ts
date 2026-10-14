@@ -13,8 +13,38 @@ import type {
   SystemStats,
 } from "../types";
 
-const RAW_BASE = (import.meta.env.VITE_API_BASE_URL || "").trim();
-const API_BASE = RAW_BASE ? `${RAW_BASE.replace(/\/+$/, "")}/api` : "/api";
+function getApiBase(): string {
+  const envBase = (import.meta.env.VITE_API_BASE_URL || "").trim();
+  const isLocal =
+    typeof window !== "undefined" &&
+    (window.location.hostname === "localhost" ||
+      window.location.hostname === "127.0.0.1" ||
+      window.location.hostname === "");
+
+  // If valid custom URL is configured and NOT a dummy placeholder containing 'xxxx', use it
+  if (envBase && !envBase.includes("xxxx")) {
+    return `${envBase.replace(/\/+$/, "")}/api`;
+  }
+
+  // On local development, route through local Vite proxy (/api -> http://127.0.0.1:8000)
+  if (isLocal) {
+    return "/api";
+  }
+
+  // In production (Vercel), default directly to verified live Render backend
+  return "https://truthcart-ai.onrender.com/api";
+}
+
+export const API_BASE = getApiBase();
+
+function handleFetchError(err: any, _fallbackMessage?: string): never {
+  if (err instanceof TypeError && err.message.toLowerCase().includes("fetch")) {
+    throw new Error(
+      "Unable to connect to the TruthCart server. The cloud backend may be spinning up (Render free tier takes ~30s on cold start). Please wait a few moments and try again."
+    );
+  }
+  throw err;
+}
 
 // Local token management
 export function getStoredToken(): string | null {
@@ -60,67 +90,83 @@ function getAuthHeaders(): HeadersInit {
 
 // ================= AUTHENTICATION =================
 export async function signup(fullName: string, email: string, password: string): Promise<AuthResponse> {
-  const res = await fetch(`${API_BASE}/auth/signup`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ full_name: fullName, email, password }),
-  });
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.detail || "Signup failed");
+  try {
+    const res = await fetch(`${API_BASE}/auth/signup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ full_name: fullName, email, password }),
+    });
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({}));
+      throw new Error(errorData.detail || "Signup failed. Please verify your details.");
+    }
+    const data: AuthResponse = await res.json();
+    setStoredToken(data.access_token);
+    setStoredUser(data.user);
+    return data;
+  } catch (err: any) {
+    handleFetchError(err, "Signup failed");
   }
-  const data: AuthResponse = await res.json();
-  setStoredToken(data.access_token);
-  setStoredUser(data.user);
-  return data;
 }
 
 export async function login(email: string, password: string): Promise<AuthResponse> {
-  const res = await fetch(`${API_BASE}/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
-  });
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.detail || "Login failed");
+  try {
+    const res = await fetch(`${API_BASE}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({}));
+      throw new Error(errorData.detail || "Login failed. Invalid email or password.");
+    }
+    const data: AuthResponse = await res.json();
+    setStoredToken(data.access_token);
+    setStoredUser(data.user);
+    return data;
+  } catch (err: any) {
+    handleFetchError(err, "Login failed");
   }
-  const data: AuthResponse = await res.json();
-  setStoredToken(data.access_token);
-  setStoredUser(data.user);
-  return data;
 }
 
 export async function ownerLogin(email: string, password: string): Promise<AuthResponse> {
-  const res = await fetch(`${API_BASE}/auth/owner-login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
-  });
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.detail || "Owner login failed");
+  try {
+    const res = await fetch(`${API_BASE}/auth/owner-login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({}));
+      throw new Error(errorData.detail || "Owner login failed. Invalid credentials.");
+    }
+    const data: AuthResponse = await res.json();
+    setStoredToken(data.access_token);
+    setStoredUser(data.user);
+    return data;
+  } catch (err: any) {
+    handleFetchError(err, "Owner login failed");
   }
-  const data: AuthResponse = await res.json();
-  setStoredToken(data.access_token);
-  setStoredUser(data.user);
-  return data;
 }
 
 export async function createDemoSession(role: "CUSTOMER" | "OWNER"): Promise<AuthResponse> {
-  const res = await fetch(`${API_BASE}/auth/demo-session`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ role }),
-  });
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.detail || "Demo session initialization failed");
+  try {
+    const res = await fetch(`${API_BASE}/auth/demo-session`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role }),
+    });
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({}));
+      throw new Error(errorData.detail || "Demo session initialization failed");
+    }
+    const data: AuthResponse = await res.json();
+    setStoredToken(data.access_token);
+    setStoredUser(data.user);
+    return data;
+  } catch (err: any) {
+    handleFetchError(err, "Demo session initialization failed");
   }
-  const data: AuthResponse = await res.json();
-  setStoredToken(data.access_token);
-  setStoredUser(data.user);
-  return data;
 }
 
 export async function fetchMe(): Promise<User> {

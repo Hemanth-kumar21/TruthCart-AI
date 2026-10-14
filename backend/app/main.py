@@ -53,6 +53,18 @@ app = FastAPI(
 
 # CORS middleware for configured frontend origins and Vercel domains
 cors_origins = [o.strip() for o in settings.CORS_ORIGINS if o.strip()]
+default_origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://truth-cart-ai.vercel.app",
+    "https://truthcart-ai.vercel.app",
+]
+for d in default_origins:
+    if d not in cors_origins and "*" not in cors_origins:
+        cors_origins.append(d)
+
 has_wildcard = "*" in cors_origins
 
 app.add_middleware(
@@ -62,6 +74,7 @@ app.add_middleware(
     allow_credentials=not has_wildcard,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # Exception handlers
